@@ -1,3 +1,4 @@
 .DS_Store
 data/
-*.pt
+model_lesions_freeze.pt
+model_lesions.pt

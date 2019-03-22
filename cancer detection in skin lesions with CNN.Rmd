@@ -254,6 +254,7 @@ model_lesions.load_state_dict(torch.load('model_lesions_fr7.pt'))
 # set the mixed7 layers to trainable, we already trained our last layer weights as a classifier for skin lesions
 # in model_lesions_freeze.pt
 
+
 mixed7 = False
 
 for name, param in model_lesions.named_parameters():
@@ -261,6 +262,9 @@ for name, param in model_lesions.named_parameters():
         param.requires_grad = False
     if name.find("Mixed_7") > -1:
         mixed7 = True
+        
+# possible improvement is setting mixed6 to trainable as well, maybe add another fc layer too... 
+# ...and get more training data from the source!
 ```
 
 ```{python}
@@ -374,10 +378,6 @@ def submission(loaders, model, save_path, test_IDs):
 
 ```{python}
 submission(loaders_lesions, model_lesions, "submission_google_fr7.csv",test_files)
-```
-
-```{python}
-subs
 ```
 
 ```{python}

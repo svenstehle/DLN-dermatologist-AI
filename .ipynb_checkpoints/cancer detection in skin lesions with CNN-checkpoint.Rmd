@@ -1,0 +1,385 @@
+---
+jupyter:
+  jupytext:
+    formats: ipynb,Rmd
+    text_representation:
+      extension: .Rmd
+      format_name: rmarkdown
+      format_version: '1.0'
+      jupytext_version: 1.0.4
+  kernelspec:
+    display_name: Python 3
+    language: python
+    name: python3
+---
+
+```{python}
+# import Datasets
+# %autosave 0
+import numpy as np
+from glob import glob
+
+#load filenames for different skin lesions for train, valid and test
+train_files = np.array(glob("./data/train/*/*")) 
+valid_files = np.array(glob("./data/valid/*/*"))
+test_files = np.array(glob("./data/test/*/*"))
+
+#number of images in each dataset
+print("A total of {} train images".format(len(train_files)))
+print("A total of {} valid images".format(len(valid_files)))
+print("A total of {} test images".format(len(test_files)))
+```
+
+```{python}
+train_files
+```
+
+```{python}
+test_files[2][2:]
+```
+
+```{python}
+import torch
+import torch.nn as nn
+import torch.nn.functional as F
+from torch import optim
+from torchvision import transforms
+from PIL import Image
+import matplotlib.pyplot as plt
+```
+
+```{python}
+# look at an image
+trans = transforms.Compose([
+    #transforms.RandomResizedCrop(240),
+    transforms.Resize((265,265)),
+    transforms.RandomCrop(224),
+    transforms.ToTensor(),
+    
+    transforms.ToPILImage()
+    
+])
+
+image = train_files[0]
+print(image)
+img = Image.open(image)
+plt.imshow(trans(img))
+print(transforms.ToTensor()(trans((img))).shape)
+```
+
+```{python}
+# create transforms for dataloaders
+# for inception_v3 we need 3x299x299 size
+transforms_train = transforms.Compose([
+    transforms.Resize((350,350)),
+    transforms.RandomHorizontalFlip(),
+    transforms.RandomRotation(30),
+    transforms.RandomCrop(299),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+])
+
+transforms_valid = transforms.Compose([
+    transforms.Resize((299,299)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])
+])
+
+transforms_test= transforms.Compose([
+    transforms.Resize((299,299)),
+    transforms.ToTensor(),
+    transforms.Normalize(mean=[0.485, 0.456, 0.406],
+                                 std=[0.229, 0.224, 0.225])])
+```
+
+```{python}
+from torch.utils.data import DataLoader, Dataset
+from torchvision.datasets import ImageFolder
+```
+
+```{python}
+cancer_train = ImageFolder(root="./data/train/",transform=transforms_train)
+cancer_valid = ImageFolder(root="./data/valid/",transform=transforms_valid)
+cancer_test = ImageFolder(root="./data/test/",transform=transforms_test)
+```
+
+```{python}
+cancer_test.imgs
+```
+
+```{python}
+# dataloaders
+
+loader_train = DataLoader(cancer_train, batch_size = 20, shuffle = True)
+
+loader_valid =  DataLoader(cancer_valid, batch_size = 15, shuffle = True)
+
+loader_test =  DataLoader(cancer_test, batch_size = 20, shuffle = False)
+```
+
+```{python}
+loaders_lesions = {"train": loader_train, "valid": loader_valid, "test": loader_test}
+```
+
+```{python}
+testing = 0
+for batch_idx, (data, target) in enumerate(loader_valid):
+    print("Batch idx: {}\n shape of input data: {}\n target:{}".format(batch_idx, data.shape, target))
+    testing +=1
+    if testing == 3:
+        break
+    
+```
+
+```{python}
+import torchvision.models as models
+
+Google = models.inception_v3(pretrained=True)
+
+
+```
+
+```{python}
+device = "cuda" if torch.cuda.is_available() else "cpu"
+print(device)
+```
+
+```{python}
+print(Google)
+```
+
+```{python}
+# we are overfitting quickly, best validation loss is 0.55...
+# maybe we can freeze all the parameters and only use the last layer for our problem
+# let's see the effect of that
+
+for param in Google.parameters():
+    param.requires_grad = False
+
+```
+
+```{python}
+# put in another fc layer for our task
+last_layer = nn.Linear(2048, 3)
+Google.fc = last_layer
+Google.to(device)
+```
+
+```{python}
+model_lesions = Google
+```
+
+```{python}
+# specify loss and optimizer
+criterion = nn.CrossEntropyLoss()
+#optimizer = optim.Adam(Google.parameters(), lr=0.0003) # check if we get some results with that. Network is huge though...
+optimizer = optim.Adam(model_lesions.parameters(), lr=0.00003) # check if we get some results with that. Network is huge though...
+```
+
+```{python}
+def train(n_epochs, loaders, model, optimizer, criterion, save_path):
+    """returns a trained model, best model will be saved"""
+    #initialize tracker for minimum validation loss
+    valid_loss_min = np.Inf
+    
+    for epoch in range(1,n_epochs+1):
+        #monitor training and validation loss
+        train_loss = 0.0
+        valid_loss = 0.0
+        ####
+        #train the model
+        ####
+        model.train()
+        for batch_idx, (data, target) in enumerate(loaders["train"]):
+            # move to GPU
+            data, target = data.to(device), target.to(device)
+            
+            #zero gradients
+            optimizer.zero_grad()
+            
+            #print progress
+            if (batch_idx+1) % 20 == 0:
+                print("{} pictures done".format((batch_idx+1)*data.shape[0]))
+            # find loss and update model parameters accordingly
+            output, aux = model(data) # apparently the model returns aux_logits... 
+            # whatever that means we don't get into it right now
+            # loss function can only work with a variable, not a tuple
+            loss = criterion(output, target)
+            train_loss += (1/(batch_idx+1)) * (loss.data - train_loss)
+            #take a step...
+            loss.backward()
+            optimizer.step()
+        
+        # validation
+        model.eval()
+        for batch_idx, (data, target) in enumerate(loaders["valid"]):
+            # move to GPU
+            data, target = data.to(device), target.to(device)
+            with torch.no_grad(): 
+                # with .no_grad() the model apparently does not return aux logits
+                output = model(data)
+                loss = criterion(output,target)
+                valid_loss += (1/(batch_idx+1)) * (loss.data - valid_loss)
+                
+        print("Epoch: {} \tTraining loss: {:.6f} \tValidation loss:{:.6f}".format(
+        epoch,
+        train_loss,
+        valid_loss))
+        
+        # save the model if it has lowest validation loss
+        if valid_loss_min > valid_loss:
+            torch.save(model.state_dict(), save_path)
+            print("saving model with valid_loss: {:.6f} \tOld loss: {:.6f}".format(valid_loss, valid_loss_min))
+            valid_loss_min = valid_loss
+    # return trained model
+    return model
+```
+
+```{python}
+model_lesions = train(20, loaders_lesions, model_lesions, optimizer, criterion, "model_lesions_fr7.pt")
+```
+
+```{python}
+# load saved model
+# 0.55 val error model_lesions.pt
+# 0.541437 val error model_lesions_freeze.pt
+#  0.528971 val error model_lesions_fr7.pt
+model_lesions.load_state_dict(torch.load('model_lesions_fr7.pt'))
+
+```
+
+```{python}
+# set the mixed7 layers to trainable, we already trained our last layer weights as a classifier for skin lesions
+# in model_lesions_freeze.pt
+
+mixed7 = False
+
+for name, param in model_lesions.named_parameters():
+    if mixed7 == False:
+        param.requires_grad = False
+    if name.find("Mixed_7") > -1:
+        mixed7 = True
+```
+
+```{python}
+for name, param in model_lesions.named_parameters():
+    if name.find("Mixed_7") > -1:
+        print(param)
+```
+
+```{python}
+# test the model
+def test(loaders, model, criterion):
+    #monitor losses and accuracy
+    test_loss = 0.0
+    correct=0.0
+    total =0.0
+
+    model.eval()
+    for batch_idx, (data, target) in enumerate(loaders["test"]):
+        # move to GPU
+        data, target = data.to(device), target.to(device)
+        with torch.no_grad():
+            output = model(data)
+            loss = criterion(output,target)
+            test_loss += (1/(batch_idx+1)) * (loss.data - test_loss)
+            #convert output probabilities to predicted class
+            pred = output.data.max(1, keepdim=True)[1]
+            #compare predictions to true label
+            correct += np.sum(np.squeeze(pred.eq(target.data.view_as(pred))).cpu().numpy())
+            total += data.size(0)
+    print("Test loss: {:.6f}\n".format(test_loss))
+    print("\nTest Accuracy: %2d%% (%2d/%2d)" % (100. * correct/total, correct, total))
+```
+
+```{python}
+test(loaders_lesions, model_lesions, criterion)
+
+# next we try to unfreeze the other layers higher up (higher level features) after we trained the weights of our classifier
+# then train some more and compare - mixed7x layers will be fine tuned (pretrained = True)!
+```
+
+```{python}
+"""
+for 0.55 val error model_lesions.pt
+Test loss: 0.892396
+
+
+Test Accuracy: 60% (360/600)
+
+
+for 0.541437 val error model_lesions_freeze
+Test loss: 0.710257
+
+
+Test Accuracy: 68% (409/600)
+
+
+for   0.528971  val error model_lesions_fr7
+Test loss: 0.681650
+
+
+Test Accuracy: 72% (437/600)
+"""
+```
+
+```{python}
+# write test results to a dict and convert to csv for submission
+import pandas as pd
+
+# melanoma is 0 - task1
+# nevus is 1
+# keratosis is 2 - task2
+
+def submission(loaders, model, save_path, test_IDs):
+    #create lists for storing of results
+    prob_mel = []
+    prob_ker = []
+    pic_ids = []
+    stop = 0
+    model.eval()
+    for batch_idx, (data, target) in enumerate(loaders["test"]):
+        if stop==2:
+            break
+        # move to GPU
+        data, target = data.to(device), target.to(device)
+        with torch.no_grad():
+            output = model(data)
+            # we have the output probabilities across dim 1
+            # apply LogSoftmax
+            probs = F.softmax(output, dim=1)
+            # write the probs and IDs to list
+            for el_mel, el_ker in zip((probs.cpu().numpy()[:,0]).astype(np.float64),
+                                      (probs.cpu().numpy()[:,2]).astype(np.float64)):
+                prob_mel.append(el_mel)
+                prob_ker.append(el_ker)
+            #prob_mel.append((probs.cpu().numpy()[:,0]).astype(np.float64))
+            #prob_ker.append((probs.cpu().numpy()[:,2]).astype(np.float64))
+            #stop += 1
+    stop = 0
+    for ids in test_IDs:
+        if stop==40:
+            break
+        pic_ids.append(ids[2:])
+        #stop += 1
+    # write lists to DF then to csv file
+    subs = pd.DataFrame({"Id": pic_ids, "task_1": prob_mel, "task_2": prob_ker}).to_csv(path_or_buf = save_path,
+                                                                                        index=False)
+    
+    return subs
+    
+```
+
+```{python}
+subs = submission(loaders_lesions, model_lesions, "submission_google_fr7.csv",test_files)
+```
+
+```{python}
+subs
+```
+
+```{python}
+cancer_test.imgs
+```

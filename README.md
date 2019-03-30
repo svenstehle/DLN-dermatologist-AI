@@ -1,3 +1,37 @@
+
+# Dermatologist AI from Udacity Deep Learning Nanodegree
+Cloned from Udacity. Goal is to design an algorithm that can visually diagnose melanoma, the deadliest form of skin cancer.
+See **Introduction** below for more details.
+
+### Problem statement:
+Our algorithm should distinguish this malignant skin tumor from two types of benign lesions, nevi and seborrheic keratoses. 
+
+### Install and use:
+* Clone repo
+* Download relevant images as described below in introduction 
+* Setup virtual environment
+* Follow **cancer detection in skin lesions with CNN.ipynb**
+* Change relevant system paths to your local paths, e.g: `"./data/train/*/*"` needs to be changed to point to the correct location of images on your system
+* If you want to use more images from the public database, download and add them to the training folder
+
+### Approach:
+* Augmented images 
+* Used pretrained inception_v3 as our base model
+* Replaced the last fc layer with a layer appropriate for our dataset (3 output units for our 3 classes)
+* Successively trained the last layers of the model (mixed7 layers) on our dataset while keeping the weights of the others frozen to reduce overfitting
+* Wrote results to submission file and tested with tester.py as described in **Introduction**
+
+### Possible improvements:
+* Use more data! Get more training images from the official source
+* Fine tuning: unfreeze weights of more pretrained layers than just mixed7 and below and compare results 
+
+### Thoughts and lessons learned:
+* Transfer learning with inception_v3
+* Tine tuning a pretrained model for our problem
+* Our dataset is pretty small so we can train fast, but our accuracy could probably be better with more images to train on
+
+
+
 [//]: # (Image References)
 
 [image1]: ./images/skin_disease_classes.png "Skin Disease Classes"
@@ -6,8 +40,6 @@
 [image4]: ./images/cat_3.png "Category 3 Rankings"
 [image5]: ./images/sample_ROC_curve.png "Sample ROC curve"
 [image6]: ./images/sample_confusion_matrix.png "Sample confusion matrix"
-
-# Dermatologist AI from Udacity Deep Learning Nanodegree
 
 ## Introduction
 

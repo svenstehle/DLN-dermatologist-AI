@@ -27,7 +27,7 @@ Our algorithm should distinguish this malignant skin tumor from two types of ben
 
 ### Thoughts and lessons learned:
 * Transfer learning with inception_v3
-* Tine tuning a pretrained model for our problem
+* Fine tuning a pretrained model for our problem
 * Our dataset is pretty small so we can train fast, but our accuracy could probably be better with more images to train on
 
 
